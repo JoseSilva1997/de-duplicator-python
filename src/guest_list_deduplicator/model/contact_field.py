@@ -6,7 +6,7 @@ class ContactField(Enum):
 
     Entries are ordered by likelihood of occurrence in real-world data.
     Alias order within each field matters: the resolver walks fields then
-    aliases, so earlier aliases win when multiple headers could map.
+    aliases, so earlier aliases win if multiple headers could map.
     """
 
     FIRST_NAME = ("First Name", ("firstname", "name"))
