@@ -1,3 +1,3 @@
-from .dispatch import list_sheets, read
+from .reader import list_sheets, read
 
 __all__ = ["list_sheets", "read"]
