@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "guest_list_deduplicator"
 version = "0.1.0"
-description = "Deduplicates a guest contact list against a the confirmed atendees list."
+description = "Deduplicates a guest contact list against a confirmed attendees list."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Jose Silva" }]
@@ -31,13 +31,13 @@ dev = [
 ]
 
 [project.scripts]
-guest-list-dedup = "guest_list_dedup.app:main"
+guest-list-dedup = "guest_list_deduplicator.app:main"
 
 [project.gui-scripts]
-guest-list-dedup-gui = "guest_list_dedup.app:main"
+guest-list-dedup-gui = "guest_list_deduplicator.app:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/guest_list_dedup"]
+packages = ["src/guest_list_deduplicator"]
 
 [tool.ruff]
 line-length = 100
