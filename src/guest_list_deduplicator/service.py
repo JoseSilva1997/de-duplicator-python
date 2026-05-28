@@ -11,6 +11,7 @@ from pathlib import Path
 from guest_list_deduplicator.dedup.orchestrator import DedupResult, deduplicate
 from guest_list_deduplicator.model.sheet_data import SheetData
 from .model import ContactRecord
+from .writers import write as write_outputs
 
 from . import readers
 from .settings import UserSettings
@@ -75,9 +76,7 @@ def run(
         total_kept += len(result.kept)
         total_removed += len(result.removed)
 
-    # Writer is still stubbed. Placeholder lets you test the rest end-to-end.
-    # output_dir = writer.write(primary_path, results)
-    output_dir = Path(".")
+    output_dir = write_outputs(primary_path, primary_sheets, results)
 
     return Summary(
         sheets_processed=len(primary_sheets),
