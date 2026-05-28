@@ -87,10 +87,11 @@ def _write_workbook(
         columns = _columns_for(sheet_data.available_fields)
         ws = wb.create_sheet(title=_safe_sheet_name(name))
 
-        # Header row. RemovedRecord adds two trailing columns.
+        # Header row. RemovedRecord adds reason + confidence plus a snapshot of
+        # the attendee that triggered the removal, prefixed "Matched ".
         header = [field.label for field in columns]
         if include_removed_columns:
-            header += ["Reason", "Confidence"]
+            header += ["Reason", "Confidence", "", "Matched name", "Matched email", "Matched company"]
         ws.append(header)
 
         for entry in records:
@@ -98,7 +99,15 @@ def _write_workbook(
             record = entry.record if include_removed_columns else entry
             row = [_record_cell(record, field) for field in columns]
             if include_removed_columns:
-                row += [entry.reason, entry.confidence]
+                matched = entry.matched
+                row += [
+                    entry.reason,
+                    entry.confidence,
+                    "",
+                    matched.resolved_full_name() or "",
+                    matched.email or "",
+                    matched.company or "",
+                ]
             ws.append(row)
 
     wb.save(path)

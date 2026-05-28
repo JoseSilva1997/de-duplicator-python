@@ -15,6 +15,7 @@ from . import strategies
 @dataclass(frozen=True, slots=True)
 class RemovedRecord:
     record: ContactRecord
+    matched: ContactRecord  # the secondary record that triggered the removal
     reason: str  # strategy label, e.g. "Exact email"
     confidence: int  # 0-100
 
@@ -84,6 +85,7 @@ def deduplicate(primary: SheetData, secondary: list[ContactRecord]) -> DedupResu
                 removed.append(
                     RemovedRecord(
                         record=record,
+                        matched=matched_secondary,
                         reason=strategy.label,
                         confidence=confidence,
                     )
