@@ -50,8 +50,50 @@ def default_pipeline() -> list[Strategy]:
     ]
 
 
-def deduplicate(primary: SheetData, secondary_pool: list[ContactRecord]) -> DedupResult:
-    """Run the default pipeline. Each strategy sees only still-unmatched
-    primary records; strategies whose required_fields aren't all available on
-    the sheet are skipped."""
-    raise NotImplementedError
+def deduplicate(primary: SheetData, secondary: list[ContactRecord]) -> DedupResult:
+    """Run the default pipeline. Each strategy sees only the candidates that
+    survived the previous strategies. Strategies whose required_fields aren't
+    all present on the sheet are skipped entirely."""
+
+    # Working list of candidates that haven't been matched yet. Starts as the
+    # full sheet and shrinks after each strategy pass.
+    unmatched: list[ContactRecord] = list(primary.records)
+    removed: list[RemovedRecord] = []
+
+    for strategy in default_pipeline():
+        # Sheet-level gate: skip strategies whose required columns aren't even
+        # present in the source. Per-row null checks live inside the strategies
+        # themselves (a sheet can have an EMAIL column with blank cells).
+        if not strategy.required_fields <= primary.available_fields:
+            continue
+
+        matches = strategy.apply(unmatched, secondary)
+        if not matches:
+            continue
+
+        # Split `unmatched` into "matched this round" (records removed) and "still
+        # unmatched" (for the next strategy). 
+        # Iterating with enumerate keeps the mapping from index → record straight.
+        survivors: list[ContactRecord] = []
+        for i, record in enumerate(unmatched):
+            match = matches.get(i)
+            if match is None:
+                survivors.append(record)
+            else:
+                matched_secondary, confidence = match
+                removed.append(
+                    RemovedRecord(
+                        record=record,
+                        reason=strategy.label,
+                        confidence=confidence,
+                    )
+                )
+        unmatched = survivors
+
+        # Tiny perf shortcut: if every candidate has been matched, no later
+        # strategy has anything to do.
+        if not unmatched:
+            break
+    
+    return DedupResult(kept=unmatched, removed=removed)
+    

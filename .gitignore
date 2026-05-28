@@ -26,3 +26,4 @@ Thumbs.db
 
 # App output (the writer dumps .xlsx files here in dev)
 outputs/
+tests/
