@@ -1,7 +1,7 @@
 """String normalisation helpers shared across dedup strategies.
 
 Latin-only inputs are assumed: stripping accents uses unicodedata's NFD +
-combining-mark filter, mirroring the Java implementation.
+combining-mark filter.
 """
 from __future__ import annotations
 

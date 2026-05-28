@@ -4,13 +4,13 @@ from ...model import ContactRecord
 from rapidfuzz import process, fuzz
 from .. import normalisation
 
-CUTOFF_THRESHOLD = 80 # good balance of false positives vs missed matches, based on spot checks
+CUTOFF_THRESHOLD = 85 # good balance of false positives vs missed matches, based on spot checks
 
 def fuzzy_name(
     candidates: list[ContactRecord],
     secondary: list[ContactRecord],
 ) -> dict[int, tuple[ContactRecord, int]]:
-    """Per-match confidence ≥ 80: fuzzy token-set match on the resolved name
+    """Per-match confidence ≥ 85: fuzzy token-set match on the resolved name
     alone. The catch-all strategy when no email or company match exists."""
     # Pre-normalise the secondary names. Records without a usable name are
     # dropped here so extractOne never sees them.

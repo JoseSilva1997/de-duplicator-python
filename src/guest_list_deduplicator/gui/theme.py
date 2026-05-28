@@ -35,7 +35,7 @@ def font(size: int = 13, *, bold: bool = False) -> QFont:
     return f
 
 
-# Convenience presets matching the Java constants
+# Convenience font presets used across the GUI widgets.
 FONT_REGULAR = font(10)
 FONT_MEDIUM = font(10)
 FONT_BOLD = font(10, bold=True)

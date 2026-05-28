@@ -137,8 +137,8 @@ def _row_to_record(
         field_map: dict[ContactField, int],
 ) -> ContactRecord | None:
     def get(field: ContactField) -> str | None:
-        # idx >= len(cells) guards against ragged CSV rows: commons-csv-style
-        # short rows would otherwise IndexError when a trailing column is blank.
+        # idx >= len(cells) guards against ragged CSV rows: short rows would
+        # otherwise IndexError when a trailing column is blank.
         idx = field_map.get(field)
         if idx is None or idx >= len(cells):
             return None

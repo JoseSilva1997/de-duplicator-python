@@ -1,7 +1,7 @@
 """Runs all dedup strategies against a primary sheet and a secondary pool.
 
-The Java code wraps this in a DedupOrchestrator class; in Python it's just
-deduplicate(). Strategies are values (Strategy dataclass) rather than classes.
+Strategies are values (Strategy dataclass) rather than classes, and the
+public entry point is a single function — `deduplicate()`.
 """
 from __future__ import annotations
 

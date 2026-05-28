@@ -79,7 +79,7 @@ def _write_workbook(
     for name, sheet_data in sheets.items():
         result = results[name]
         # In the "removed" workbook, sheets that contributed no removals are
-        # omitted entirely — matches the Java behaviour.
+        # omitted entirely — keeps the file focused on rows that were dropped.
         records = result.removed if include_removed_columns else result.kept
         if include_removed_columns and not records:
             continue
