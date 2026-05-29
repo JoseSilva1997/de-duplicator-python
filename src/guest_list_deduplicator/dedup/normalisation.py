@@ -16,6 +16,40 @@ _LEGAL_SUFFIX = re.compile(
     r"\b(inc|ltd|corp|corporation|llc|gmbh|plc|s\.a\.|co)\b\.?",
     re.IGNORECASE,
 )
+# Generic words that rarely carry identity. Kept conservative: 'solutions',
+# 'services', 'technologies', 'systems', 'consulting' are intentionally excluded
+# because they distinguish many small firms ("Acme Solutions" vs "Acme Services").
+_NOISE_TOKENS = re.compile(
+    r"\b(group|holdings?|international|intl|global|worldwide|enterprises)\b",
+    re.IGNORECASE,
+)
+# Country / nationality tokens we see attached to local subsidiaries
+# ("Acme Vietnam", "Acme India"). Extend as offenders appear in the data.
+# Used as a fallback when the record has no country field; the per-record
+# country strip in normalise_company is the more precise mechanism.
+_COUNTRY_TOKENS = re.compile(
+    r"\b("
+    r"vietnam|vietnamese|"
+    r"usa|united states|"
+    r"uk|united kingdom|"
+    r"india|indian|"
+    r"china|chinese|"
+    r"japan|japanese|"
+    r"korea|korean|"
+    r"singapore|singaporean|"
+    r"thailand|thai|"
+    r"indonesia|indonesian|"
+    r"malaysia|malaysian|"
+    r"philippines|filipino|"
+    r"germany|german|"
+    r"france|french|"
+    r"brazil|brazilian|"
+    r"mexico|mexican|"
+    r"canada|canadian|"
+    r"australia|australian"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 def strip_accents(value: str) -> str:
@@ -30,9 +64,23 @@ def normalise_string(value: str) -> str:
     return _WHITESPACE.sub(" ", cleaned).strip()
 
 
-def normalise_company(value: str) -> str:
-    """normalise_string + strip legal suffixes + drop punctuation."""
-    cleaned = _LEGAL_SUFFIX.sub("", normalise_string(value))
+def normalise_company(value: str, country: str | None = None) -> str:
+    """normalise_string + strip legal suffixes + strip generic noise words +
+    strip country/nationality tokens.
+
+    When `country` is provided (the record's own country field), its normalised
+    tokens are stripped from the name as well. This catches local-subsidiary
+    naming like "Acme Vietnam" when the record's country is Vietnam, without
+    risking over-stripping country names that are part of the brand
+    ("Bank of America")."""
+    cleaned = normalise_string(value)
+    cleaned = _LEGAL_SUFFIX.sub("", cleaned)
+    cleaned = _NOISE_TOKENS.sub("", cleaned)
+    cleaned = _COUNTRY_TOKENS.sub("", cleaned)
+    if country is not None:
+        for token in normalise_string(country).split():
+            if len(token) > 1:
+                cleaned = re.sub(rf"\b{re.escape(token)}\b", "", cleaned)
     return _WHITESPACE.sub(" ", cleaned).strip()
 
 def key_for(record: ContactRecord) -> str | None:
@@ -40,7 +88,7 @@ def key_for(record: ContactRecord) -> str | None:
     name = record.resolved_full_name()
     if name is None or record.company is None:
         return None
-    return f"{normalise_string(name)}|{normalise_company(record.company)}"
+    return f"{normalise_string(name)}|{normalise_company(record.company, record.country)}"
 
 
 def tokenise_name(value: str) -> list[str]:

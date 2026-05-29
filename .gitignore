@@ -27,3 +27,8 @@ Thumbs.db
 # App output (the writer dumps .xlsx files here in dev)
 outputs/
 tests/
+
+# While prototyping ML solution
+golden_pairs.csv
+near_misses.csv
+src/guest_list_deduplicator/evaluation/

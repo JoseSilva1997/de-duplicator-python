@@ -30,7 +30,7 @@ def fuzzy_key(
             continue
         sec_pre.append((
             normalisation.normalise_string(name),
-            normalisation.normalise_company(r.company),
+            normalisation.normalise_company(r.company, r.country),
             r,
         ))
 
@@ -45,7 +45,7 @@ def fuzzy_key(
         if cand_name is None:
             continue
         q_name = normalisation.normalise_string(cand_name)
-        q_company = normalisation.normalise_company(candidate.company)
+        q_company = normalisation.normalise_company(candidate.company, candidate.country)
 
         # No process.extractOne here because the cutoff is two-dimensional.
         # O(N*M) scan, but each ratio call is cheap.
