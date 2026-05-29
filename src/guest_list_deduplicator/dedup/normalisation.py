@@ -25,16 +25,15 @@ def strip_accents(value: str) -> str:
 
 
 def normalise_string(value: str) -> str:
-    """Accent strip → lowercase → trim → collapse whitespace."""
-    return _WHITESPACE.sub(" ", strip_accents(value).lower().strip())
+    """Accent strip → lowercase → punctuation strip → collapse whitespace."""
+    cleaned = _PUNCT.sub(" ", strip_accents(value).lower())
+    return _WHITESPACE.sub(" ", cleaned).strip()
 
 
 def normalise_company(value: str) -> str:
     """normalise_string + strip legal suffixes + drop punctuation."""
     cleaned = _LEGAL_SUFFIX.sub("", normalise_string(value))
-    cleaned = _PUNCT.sub("", cleaned)
     return _WHITESPACE.sub(" ", cleaned).strip()
-
 
 def key_for(record: ContactRecord) -> str | None:
     """`<normalised resolved name>|<normalised company>` or None if either is missing."""
