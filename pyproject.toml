@@ -28,6 +28,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "pyinstaller>=6.10",
+    "jellyfish>=1.0",
 ]
 
 [project.scripts]

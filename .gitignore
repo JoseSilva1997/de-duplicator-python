@@ -19,6 +19,7 @@ dist/
 # IDE
 .vscode/
 .idea/
+CLAUDE.md
 
 # OS
 Thumbs.db
@@ -28,7 +29,10 @@ Thumbs.db
 outputs/
 tests/
 
-# While prototyping ML solution
+# other
 golden_pairs.csv
 near_misses.csv
 src/guest_list_deduplicator/evaluation/
+src/audit_blocked/
+src/audit_out/
+src/audit_precision/

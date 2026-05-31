@@ -5,7 +5,7 @@ from rapidfuzz import fuzz
 from .. import normalisation
 
 FIRST_NAME_THRESHOLD = 92 # token_set_ratio: lenient, handles initials and middle names
-LAST_NAME_THRESHOLD = 90  # fuzz.ratio: strict, rejects "Garcia" vs "Garcia Lopez"
+LAST_NAME_THRESHOLD = 90  # fuzz.ratio: strict, rejects "Couto" vs "Couto Silva"
 FULLNAME_THRESHOLD = 100  # fallback when first/last aren't separately available
 
 
@@ -41,8 +41,8 @@ def fuzzy_name(
     """Confidence: first name AND last name each fuzzy-match independently, with a
     country veto. The catch-all strategy when no email or company match exists.
 
-    Last names use fuzz.ratio (no subset bonus) so "Garcia" doesn't collapse into
-    "Garcia Lopez". First names use token_set_ratio to forgive middle names and
+    Last names use fuzz.ratio (no subset bonus) so "Couto" doesn't collapse into
+    "Couto Silva". First names use token_set_ratio to forgive middle names and
     initial variants. When the record only carries a full_name (no split), we fall
     back to whole-string token_set_ratio at an exact-match cutoff.
     """
