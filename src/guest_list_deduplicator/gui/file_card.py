@@ -261,9 +261,17 @@ class FileCard(QFrame):
             self._record_count = -1
             self.changed.emit()
 
+        def on_finished() -> None:
+            # Drop our reference before the C++ object is deleted, so a later
+            # selection never calls into a dangling wrapper. Guard against a
+            # newer worker having already taken the slot.
+            if self._count_worker is worker:
+                self._count_worker = None
+            worker.deleteLater()
+
         worker.succeeded.connect(on_succeeded)
         worker.failed.connect(on_failed)
-        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(on_finished)
         worker.start()
 
     def _update_filename_display(self) -> None:
