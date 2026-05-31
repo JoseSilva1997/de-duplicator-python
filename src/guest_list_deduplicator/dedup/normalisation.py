@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from functools import lru_cache
 
 from ..model import ContactRecord
 
@@ -58,12 +59,18 @@ def strip_accents(value: str) -> str:
     )
 
 
+@lru_cache(maxsize=None)
 def normalise_string(value: str) -> str:
-    """Accent strip → lowercase → punctuation strip → collapse whitespace."""
+    """Accent strip → lowercase → punctuation strip → collapse whitespace.
+
+    Cached: the same field values recur across strategies and every transitive
+    pass, and the function is pure, so memoising collapses the repeated regex work.
+    """
     cleaned = _PUNCT.sub(" ", strip_accents(value).lower())
     return _WHITESPACE.sub(" ", cleaned).strip()
 
 
+@lru_cache(maxsize=None)
 def normalise_company(value: str, country: str | None = None) -> str:
     """normalise_string + strip legal suffixes + strip generic noise words +
     strip country/nationality tokens.
