@@ -32,7 +32,8 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # pyqtdarktheme 2.1 requires Python <3.12, so the build is pinned to 3.11.
+          python-version: "3.11"
 
       # Compute the new version and write it back to pyproject.toml. Done before
       # the build so a build failure leaves nothing committed or tagged.
