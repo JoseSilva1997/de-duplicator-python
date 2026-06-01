@@ -36,3 +36,4 @@ src/guest_list_deduplicator/evaluation/
 src/audit_blocked/
 src/audit_out/
 src/audit_precision/
+OUT.xlsx
