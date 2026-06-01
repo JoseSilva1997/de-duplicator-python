@@ -67,6 +67,7 @@ class FileCard(QFrame):
         self._icon_label = QLabel()
         self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._icon_label.setContentsMargins(0, 0, 0, 12)
+        self._icon_label.setStyleSheet("background: transparent;")
         self._set_icon("empty")
 
         self._main_label = self._make_label(
@@ -89,7 +90,7 @@ class FileCard(QFrame):
         label.setFont(font)
         label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         # palette/stylesheet would be heavier; setStyleSheet is fine for color-only
-        label.setStyleSheet(f"color: {theme.hex_(color)};")
+        label.setStyleSheet(f"color: {theme.hex_(color)}; background: transparent;")
         return label
 
     def _set_icon(self, state: str) -> None:
@@ -97,9 +98,9 @@ class FileCard(QFrame):
         if state == "loaded":
             icon = qta.icon("mdi.check-circle-outline", color=theme.hex_(theme.SUCCESS))
         elif state == "hover":
-            icon = qta.icon("mdi.download-outline", color=theme.hex_(theme.PRIMARY))
+            icon = qta.icon("fa5s.download", color=theme.hex_(theme.PRIMARY))
         else:
-            icon = qta.icon("mdi.download-outline", color=theme.hex_(theme.TEXT_MUTED))
+            icon = qta.icon("fa5s.download", color=theme.hex_(theme.TEXT_MUTED))
         self._icon_label.setPixmap(icon.pixmap(ICON_SIZE, ICON_SIZE))
 
     # ---- state queries used by the main window --------------------------------
@@ -171,7 +172,7 @@ class FileCard(QFrame):
         if not self.has_file():
             self._set_icon("hover" if on else "empty")
             self._main_label.setStyleSheet(
-                f"color: {theme.hex_(theme.PRIMARY if on else theme.TEXT_SECONDARY)};"
+                f"color: {theme.hex_(theme.PRIMARY if on else theme.TEXT_SECONDARY)}; background: transparent;"
             )
         self.update()
 
@@ -231,7 +232,7 @@ class FileCard(QFrame):
         self._full_filename = chosen.name
 
         self._set_icon("loaded")
-        self._main_label.setStyleSheet(f"color: {theme.hex_(theme.TEXT_PRIMARY)};")
+        self._main_label.setStyleSheet(f"color: {theme.hex_(theme.TEXT_PRIMARY)}; background: transparent;")
         self._main_label.setToolTip(self._full_filename)
         self._update_filename_display()
         self._detail_label.setText(_format_sheet_summary(len(sheets), -1))

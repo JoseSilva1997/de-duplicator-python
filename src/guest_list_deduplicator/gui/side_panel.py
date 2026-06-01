@@ -77,6 +77,9 @@ class SidePanel(QFrame):
                 background: {theme.hex_(theme.CARD)};
                 border-left: 1px solid {theme.hex_(theme.CARD_BORDER)};
             }}
+            QCheckBox:hover {{
+                border: none !important;
+            }}
             """
         )
         self.setObjectName("sidePanelRoot")
@@ -86,7 +89,11 @@ class SidePanel(QFrame):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         root.addLayout(self._build_header())
-        root.addWidget(self._build_tabs(), 1)
+
+        tabs_wrapper = QVBoxLayout()
+        tabs_wrapper.setContentsMargins(6, 0, 6, 6)
+        tabs_wrapper.addWidget(self._build_tabs())
+        root.addLayout(tabs_wrapper, 1)
 
         self._panel_anim = QPropertyAnimation(self, b"pos", self)
         self._panel_anim.setDuration(ANIMATION_MS)
@@ -222,8 +229,8 @@ def _wrap_scrollable(inner: QWidget) -> QScrollArea:
 
 
 def _how_it_works_html() -> str:
-    body_style = f"font-family: '{theme.FONT_FAMILY}'; font-size: 11pt; color: #0F172A;"
-    h = "color:#0F172A; font-size:12pt; margin:14px 0 4px 0;"
+    body_style = f"font-family: '{theme.FONT_FAMILY}'; font-size: 9pt; color: #0F172A;"
+    h = "color:#0F172A; font-size:10pt; margin:14px 0 4px 0;"
     p = "color:#334155; margin:4px 0 10px 0; line-height:1.45;"
     li = "color:#334155; margin:2px 0; line-height:1.4;"
     return f"""

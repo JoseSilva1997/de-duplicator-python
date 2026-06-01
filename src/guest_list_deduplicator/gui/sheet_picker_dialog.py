@@ -51,7 +51,10 @@ def pick_sheets(parent: QWidget | None, title: str, sheets: list[str]) -> list[s
         cb = QCheckBox(sheet)
         cb.setChecked(True)
         cb.setFont(theme.FONT_REGULAR)
-        cb.setStyleSheet(f"color: {theme.hex_(theme.TEXT_PRIMARY)};")
+        cb.setStyleSheet(
+                f"QCheckBox {{ color: {theme.hex_(theme.TEXT_PRIMARY)}; }}"
+                "QCheckBox:hover { border: none !important; }"
+            )
         check_layout.addWidget(cb)
         boxes.append(cb)
     check_layout.addStretch(1)

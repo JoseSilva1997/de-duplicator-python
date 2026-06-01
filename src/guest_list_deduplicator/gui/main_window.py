@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import qtawesome as qta
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QGridLayout,
@@ -99,6 +99,7 @@ class MainWindow(QMainWindow):
         bar.addStretch(1)
         gear = QPushButton()
         gear.setIcon(qta.icon("mdi.cog-outline", color=theme.hex_(theme.TEXT_SECONDARY)))
+        gear.setIconSize(QSize(28, 28))
         gear.setFlat(True)
         gear.setCursor(Qt.CursorShape.PointingHandCursor)
         gear.setToolTip("Settings and how it works")
