@@ -1,7 +1,7 @@
-"""Top-level dedup service. The entry points the GUI calls.
+"""Top-level service layer. These are the entry points the GUI calls.
 
-`list_sheets` and `count_records` are wired through the readers package.
-`run` is still a stub pending the dedup orchestrator and Excel writer.
+'list_sheets' and 'count_records' delegate to the readers package.
+'run' reads both files, runs the dedup pipeline, and writes the output.
 """
 from __future__ import annotations
 
@@ -19,6 +19,11 @@ from .settings import UserSettings
 
 @dataclass(frozen=True, slots=True)
 class Summary:
+    """Aggregated counts returned by 'run', used to populate the GUI result panel.
+
+    'no_email_dropped' counts records discarded by the pre-filter (missing email),
+    which is separate from 'total_removed' (records matched as duplicates).
+    """
     sheets_processed: int
     total_kept: int
     total_removed: int
@@ -27,7 +32,7 @@ class Summary:
 
 
 def list_sheets(file: Path) -> list[str]:
-    """Sheet names in declaration order, hidden sheets excluded.
+    """Returns sheet names in declaration order, with hidden sheets excluded.
 
     CSV files always return a single synthetic sheet named after the file.
     """
@@ -35,7 +40,7 @@ def list_sheets(file: Path) -> list[str]:
 
 
 def count_records(file: Path, sheet_selection: list[str]) -> int:
-    """Total record count across the selected sheets after read + mapper filter."""
+    """Returns the total number of records across the selected sheets, after reading and applying column mapping."""
     sheets = readers.read(file, sheet_selection)
     return sum(len(s.records) for s in sheets.values())
 
@@ -47,9 +52,8 @@ def run(
     secondary_sheet_selection: list[str],
     settings: UserSettings,
 ) -> Summary:
-    """Read both files, dedup each primary sheet against the combined secondary
-    pool, write outputs, return a Summary for the GUI."""
-    # Read first — both sides — so any IO error surfaces before we do any work.
+    """Read both files, deduplicate each primary sheet against the combined secondary pool, write the outputs, and return a Summary for the GUI."""
+    # Read both files upfront so any IO error surfaces before any processing begins.
     primary_sheets = readers.read(primary_path, primary_sheet_selection)
     secondary_sheets = readers.read(secondary_path, secondary_sheet_selection)
 
@@ -62,8 +66,8 @@ def run(
         primary_rows_after = sum(len(sd.records) for sd in primary_sheets.values())
         no_email_dropped = primary_rows_before - primary_rows_after
     
-    # All selected secondary sheets become one combined pool. Each primary sheet
-    # is deduped against the full pool, not just same-named secondary sheets.
+    # Merge all selected secondary sheets into one pool. Each primary sheet
+    # is checked against the full pool, not just sheets with matching names.
     secondary_pool: list[ContactRecord] = [
         record for sd in secondary_sheets.values() for record in sd.records]
     
@@ -87,9 +91,11 @@ def run(
     )
 
 def _require_email(sheets: dict[str, SheetData]) -> dict[str, SheetData]:
-    """Return a new map with records lacking an email filtered out. Preserves
-    sheet order and each sheet's available_fields (the column still exists
-    even if every cell happens to be blank after filtering)."""
+    """Returns a copy of the sheet map with records missing an email removed.
+
+    Sheet order is preserved. Each sheet's 'available_fields' is kept intact: the column
+    remains listed even if all its cells are blank after filtering.
+    """
     return {
         name: SheetData(
             records=[r for r in sd.records if r.email is not None],

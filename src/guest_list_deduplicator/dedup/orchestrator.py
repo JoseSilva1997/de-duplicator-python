@@ -1,7 +1,7 @@
-"""Runs all dedup strategies against a primary sheet and a secondary pool.
+"""Runs dedup strategies against a primary sheet and a secondary pool.
 
-Strategies are values (Strategy dataclass) rather than classes, and the
-public entry point is a single function — `deduplicate()`.
+Strategies are plain values (the Strategy dataclass), not subclasses.
+The public entry point is deduplicate().
 """
 from __future__ import annotations
 
@@ -17,19 +17,21 @@ class RemovedRecord:
     record: ContactRecord
     matched: ContactRecord  # the secondary record that triggered the removal
     reason: str  # strategy label, e.g. "Exact email"
-    confidence: int  # 0-100
+    confidence: int  # 0-100; 100 = exact match
 
 
 @dataclass(frozen=True, slots=True)
 class DedupResult:
+    """Candidates that survived deduplication and those that were removed, with reasons."""
+
     kept: list[ContactRecord]
     removed: list[RemovedRecord]
 
 
 @dataclass(frozen=True, slots=True)
 class Strategy:
-    """A dedup strategy: a label, a required-field set checked at sheet level,
-    and a function that returns matches for the still-unmatched candidates."""
+    """One dedup strategy. Holds a display label, the fields a sheet must
+    provide before this strategy can run, and the matching function itself."""
 
     label: str
     required_fields: frozenset[ContactField]
@@ -40,9 +42,9 @@ class Strategy:
     ]
 
 
-# Strategies precise enough that a candidate they match can itself act as an
-# identity anchor in later transitive passes. Fuzzy_name is deliberately
-# excluded: seeding from it would cascade its false positives.
+# Strategies trusted enough that a matched candidate can seed the secondary
+# pool for later transitive passes. Fuzzy_name is excluded because its false
+# positives would cascade through those passes.
 SEEDING_STRATEGY_LABELS = frozenset({
     "Exact email",
     "Email username",
@@ -52,7 +54,8 @@ SEEDING_STRATEGY_LABELS = frozenset({
 
 
 def default_pipeline() -> list[Strategy]:
-    """The five-strategy default pipeline, in order."""
+    """The five-strategy default pipeline, in order. Order matters: earlier strategies
+    take precedence and their matches are not re-examined by later ones."""
     return [
         Strategy("Exact email", frozenset({ContactField.EMAIL}), strategies.exact_email),
         Strategy("Email username", frozenset({ContactField.EMAIL}), strategies.email_username),
@@ -69,10 +72,10 @@ def _run_pipeline_pass(
     available_fields: frozenset[ContactField],
     removed: list[RemovedRecord],
 ) -> tuple[list[ContactRecord], list[ContactRecord]]:
-    """Run every applicable strategy once against `secondary`, tagging each
-    removal with `"Pass <n> <strategy.label>"`. Returns the new unmatched list
-    and the candidates removed by high-precision strategies (the seeds usable
-    for the next transitive pass)."""
+    """Run every applicable strategy against 'secondary' in order, labelling
+    each removal 'Pass <n> <strategy.label>'. Returns the still-unmatched
+    candidates and the newly removed records that qualify as seeds for the
+    next transitive pass."""
     new_seeds: list[ContactRecord] = []
     for strategy in default_pipeline():
         if not strategy.required_fields <= available_fields:
@@ -80,7 +83,7 @@ def _run_pipeline_pass(
         matches = strategy.apply(unmatched, secondary)
         if not matches:
             continue
-        is_seeding = strategy.label in SEEDING_STRATEGY_LABELS
+        is_seeding = strategy.label in SEEDING_STRATEGY_LABELS  # only high-precision strategies contribute seeds
         survivors: list[ContactRecord] = []
         for i, record in enumerate(unmatched):
             match = matches.get(i)
@@ -105,11 +108,12 @@ def _run_pipeline_pass(
 
 
 def deduplicate(primary: SheetData, secondary: list[ContactRecord]) -> DedupResult:
-    """Run the default pipeline against `secondary`, then iterate transitive
-    passes where the secondary pool is the candidates matched by high-precision
-    strategies in the previous pass. Strategies whose required_fields aren't
-    present on the sheet are skipped entirely. Removal `reason` is labelled
-    `"Pass <n> <strategy>"` so output sorts by pass."""
+    """Run the default pipeline, then keep iterating transitive passes until
+    no new matches are found or no candidates remain. In each transitive pass,
+    the secondary pool is the records matched by high-precision strategies in
+    the previous pass. Strategies whose 'required_fields' are absent from the
+    sheet are skipped. Each removal's 'reason' is labelled 'Pass <n> <strategy>'
+    so the output can be sorted by pass."""
 
     unmatched: list[ContactRecord] = list(primary.records)
     removed: list[RemovedRecord] = []
@@ -119,9 +123,9 @@ def deduplicate(primary: SheetData, secondary: list[ContactRecord]) -> DedupResu
         pass_num, unmatched, secondary, primary.available_fields, removed,
     )
 
-    # Transitive reconciliation. Each pass uses only the seeds produced by the
-    # previous pass — the survivors have already been tested against everything
-    # earlier, so re-checking against older pools would do no new work.
+    # Each transitive pass uses only the seeds from the previous pass.
+    # Survivors have already been tested against older pools, so there is
+    # nothing to gain from repeating those comparisons.
     while unmatched and seeds:
         pass_num += 1
         unmatched, seeds = _run_pipeline_pass(

@@ -1,3 +1,4 @@
+"""Strategy: match by normalised email localpart, with role-address and short-localpart guards."""
 from __future__ import annotations
 
 import re
@@ -8,9 +9,10 @@ from rapidfuzz import fuzz
 from ...model import ContactRecord
 from .. import normalisation
 
-# Role / shared-mailbox localparts: a hit on one of these is an organisation,
-# not a person, so it must never match (or seed a transitive removal). Compared
-# against the normalised localpart, so "no-reply" is checked as "noreply".
+# Role and shared-mailbox localparts. A match on one of these belongs to an
+# organisation rather than a person, so it must never produce a match or seed
+# a transitive pass. Compared against the normalised localpart, so "no-reply"
+# is checked as "noreply".
 ROLE_LOCALPARTS = frozenset({
     "contact", "info", "admin", "administrator", "sales", "office", "hello",
     "support", "enquiries", "enquiry", "hr", "marketing", "team", "careers",
@@ -19,15 +21,15 @@ ROLE_LOCALPARTS = frozenset({
     "billing", "finance", "service", "services", "webmaster", "postmaster",
 })
 
-# A localpart is "distinctive" (trusted on its own) if it carried a separator or
-# a digit, or its normalised form is at least this long. Short bare localparts
-# (e.g. a four-letter first name) collide between different people, so for those
-# we additionally require the names to corroborate.
+# A localpart is considered distinctive (trusted without name corroboration) if
+# it contained a separator or digit, or its normalised form is at least this many
+# characters long. Short bare localparts (e.g. a four-letter first name) collide
+# between different people, so those require the names to agree as well.
 DISTINCTIVE_MIN_LENGTH = 8
 
-# Name-corroboration cutoffs for the non-distinctive case. Deliberately looser
-# than fuzzy_name: a shared localpart across domains is already strong evidence,
-# so the names only need to not contradict.
+# Name-corroboration thresholds used when a localpart is not distinctive.
+# Deliberately looser than fuzzy_name: a shared localpart across domains is
+# already strong evidence, so the names only need to not contradict each other.
 _FIRST_THRESHOLD = 85
 _LAST_THRESHOLD = 80
 _FULLNAME_THRESHOLD = 80
@@ -39,16 +41,16 @@ def email_username(
         candidates: list[ContactRecord],
         secondary: list[ContactRecord],
 ) -> dict[int, tuple[ContactRecord, int]]:
-    """Confidence 90: same normalised localpart (the part before '@'), guarded.
+    """Match candidates against secondary by normalised email localpart. Confidence 90.
 
-    By the time this runs, exact_email has already pulled the whole-email
-    matches, so any hit here is a localpart-only match (a different domain on
-    each side). The localpart is normalised (lowercased, '+suffix' dropped,
-    '._-' stripped) so "john.smith" and "johnsmith" match. Two guards keep that
-    aggression safe: role/shared-mailbox localparts never match, and short bare
-    localparts only match when the names corroborate.
+    By the time this runs, exact_email has already claimed whole-email matches,
+    so any hit here is a localpart-only match across different domains. The
+    localpart is normalised (lowercased, '+suffix' dropped, '._-' stripped) so
+    "john.smith" and "johnsmith" match. Two guards prevent over-matching: role
+    and shared-mailbox localparts never match, and short bare localparts only
+    match when the names agree.
     """
-    by_key: dict[str, list[ContactRecord]] = defaultdict(list)
+    by_key: dict[str, list[ContactRecord]] = defaultdict(list)  # localpart key -> secondary records with that key
     for record in secondary:
         feats = _localpart_features(record.email)
         if feats is not None and feats[0] not in ROLE_LOCALPARTS:
@@ -68,13 +70,12 @@ def email_username(
 
 
 def _localpart_features(email: str | None) -> tuple[str, bool] | None:
-    """Return (normalised localpart key, distinctive?) or None.
+    """Return (normalised localpart key, is_distinctive) or None if the email is unusable.
 
-    The key drops a '+suffix' and strips '._-' so separator variants collide.
-    Distinctive means the raw localpart carried a separator or digit, or the key
-    is at least DISTINCTIVE_MIN_LENGTH long. If there's no '@', the whole string
-    is treated as the localpart (a candidate typed in as "foo" can still match
-    "foo@example.com")."""
+    The key drops any '+suffix' and strips '._-' so separator variants collide.
+    A localpart is distinctive if the raw form contained a separator or digit,
+    or the key is at least DISTINCTIVE_MIN_LENGTH characters long. If there is
+    no '@', the whole string is treated as the localpart."""
     if email is None:
         return None
     at = email.find("@")
@@ -87,10 +88,10 @@ def _localpart_features(email: str | None) -> tuple[str, bool] | None:
 
 
 def _names_agree(a: ContactRecord, b: ContactRecord) -> bool:
-    """Relaxed name corroboration for short, undistinctive localparts. When both
-    sides carry a first and last name they're matched part by part; otherwise the
-    resolved full names are compared. A side with no usable name is accepted (the
-    localpart match stands on its own)."""
+    """Check whether the names on two records are compatible for a non-distinctive
+    localpart match. When both sides have a first and last name, they are compared
+    part by part; otherwise the resolved full names are compared. If either side
+    has no usable name the check passes, letting the localpart match stand alone."""
     if a.first_name and a.last_name and b.first_name and b.last_name:
         first = fuzz.token_set_ratio(
             normalisation.normalise_string(a.first_name),

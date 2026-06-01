@@ -9,8 +9,10 @@ from PySide6.QtCore import QThread, Signal
 
 
 class Worker(QThread):
-    succeeded = Signal(object)
-    failed = Signal(Exception)
+    """Run a callable on a background thread and emit succeeded or failed when it finishes."""
+
+    succeeded = Signal(object)   # carries the callable's return value
+    failed = Signal(Exception)   # carries the raised exception
 
     def __init__(self, fn: Callable[..., Any], *args, **kwargs):
         super().__init__()

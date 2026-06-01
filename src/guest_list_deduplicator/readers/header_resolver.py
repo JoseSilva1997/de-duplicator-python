@@ -1,16 +1,20 @@
-"""Map a row of header cells to {ContactField: column_index}.
+"""Maps a row of header cells to {ContactField: column_index}.
 
-Walks fields → aliases → header cells, so earlier aliases win over column order.
-If both FIRST_NAME and LAST_NAME resolve, FULL_NAME is dropped from the map.
+For each ContactField, aliases are tried in order and the first match wins.
+If both FIRST_NAME and LAST_NAME are found, FULL_NAME is dropped from the result
+because split names are more precise and combining them would be redundant.
 """
 from __future__ import annotations
 
 from ..model import ContactField
 import re
 
-_HEADER_CLEAN = re.compile(r"[^a-z0-9]")
+_HEADER_CLEAN = re.compile(r"[^a-z0-9]")  # strips spaces, underscores, and punctuation before alias matching
 
 def _normalise_header(cell: str | None) -> str:
+    """Lowercase and strip non-alphanumeric characters so variants like
+    'First Name', 'first_name', and 'firstname' all produce the same token.
+    """
     if cell is None:
         return ""
     return _HEADER_CLEAN.sub("", cell.lower())
@@ -26,9 +30,9 @@ def resolve(headers: list[str | None]) -> dict[ContactField, int]:
             except ValueError:
                 continue
             result[field] = idx
-            break # alias order wins: stop at first match for this field
+            break  # stop at the first matching alias; alias list order is the priority signal
     if ContactField.FIRST_NAME in result and ContactField.LAST_NAME in result:
-        result.pop(ContactField.FULL_NAME, None) # drop FULL_NAME if FIRST_NAME and LAST_NAME are both present
+        result.pop(ContactField.FULL_NAME, None)  # split names are more reliable; prefer them over FULL_NAME
     return result
     
 

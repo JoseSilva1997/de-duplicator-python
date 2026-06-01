@@ -1,3 +1,5 @@
+"""fuzzy_name strategy: match candidates against secondary records on name alone,
+with a country veto. The catch-all strategy at the end of the pipeline."""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -9,15 +11,19 @@ from rapidfuzz import fuzz, process
 from ...model import ContactRecord
 from .. import normalisation
 
-FIRST_NAME_THRESHOLD = 92 # token_set_ratio: lenient, handles initials and middle names
-LAST_NAME_THRESHOLD = 90  # fuzz.ratio: strict, rejects "Couto" vs "Couto Silva"
-FULLNAME_THRESHOLD = 100  # fallback when first/last aren't separately available
+FIRST_NAME_THRESHOLD = 92  # token_set_ratio: lenient enough to handle initials and middle names
+LAST_NAME_THRESHOLD = 90   # fuzz.ratio: strict, rejects "Couto" vs "Couto Silva"
+FULLNAME_THRESHOLD = 100   # fallback when first/last aren't separately available
 
 _CHUNK = 2000
 
 
 def _split_parts(record: ContactRecord) -> tuple[str | None, str | None, str | None]:
-    """Return (first, last, full) normalised. first/last are None unless both are present."""
+    """Return a normalised (first, last, full) names for a ContactRecord.
+
+    first and last are populated only when both are present on the record; otherwise
+    full holds the resolved full name, and first/last are None.
+    """
     if record.first_name is not None and record.last_name is not None:
         return (
             normalisation.normalise_string(record.first_name),
@@ -31,13 +37,18 @@ def _split_parts(record: ContactRecord) -> tuple[str | None, str | None, str | N
 
 
 def _country_key(record: ContactRecord) -> str | None:
+    """Return the normalised country string, or None if the record has no country.
+
+    None means 'unknown': the country veto in '_country_conflict' treats it as
+    non-conflicting so that missing data never blocks a match.
+    """
     if record.country is None:
         return None
     return normalisation.normalise_string(record.country)
 
 
 def _country_conflict(a: str | None, b: str | None) -> bool:
-    """Veto: both sides declared a country and they disagree."""
+    """Return True if both records declare a country and those countries differ."""
     return a is not None and b is not None and a != b
 
 
@@ -47,9 +58,12 @@ def _blocks(
     scorer: Callable,
     cutoff: int,
 ) -> Iterator[tuple[int, int, float]]:
-    """Yield (query_index, choice_index, score) for every pair whose score
-    clears `cutoff`, computed in C via process.cdist one chunk of queries at a
-    time. choice indices come back ascending (numpy nonzero order)."""
+    """Yield (query_index, choice_index, score) for every pair that clears 'cutoff'.
+
+    Scores are computed via process.cdist (multithreaded C), processing queries in
+    chunks of _CHUNK to keep the score matrix small. Within each query, choice indices
+    are yielded in ascending order (numpy nonzero order).
+    """
     for start in range(0, len(queries), _CHUNK):
         block = queries[start:start + _CHUNK]
         matrix = process.cdist(
@@ -60,7 +74,7 @@ def _blocks(
             workers=-1,
         )
         for bi, row in enumerate(matrix):
-            cols = np.nonzero(row)[0]  # scores >= cutoff; the rest were zeroed
+            cols = np.nonzero(row)[0]  # process.cdist zeros out scores below cutoff
             if cols.size == 0:
                 continue
             qi = start + bi
@@ -72,19 +86,20 @@ def fuzzy_name(
     candidates: list[ContactRecord],
     secondary: list[ContactRecord],
 ) -> dict[int, tuple[ContactRecord, int]]:
-    """Confidence: first name AND last name each fuzzy-match independently, with a
-    country veto. The catch-all strategy when no email or company match exists.
+    """Match candidates against secondary records on name alone, with a country veto.
 
-    Last names use fuzz.ratio (no subset bonus) so "Couto" doesn't collapse into
-    "Couto Silva". First names use token_set_ratio to forgive middle names and
-    initial variants. When the record only carries a full_name (no split), we fall
-    back to whole-string token_set_ratio at an exact-match cutoff.
+    This is the catch-all strategy, used when no email or company signal is available.
 
-    The strict gate of each path (last-name ratio for split records, the exact
-    full-name cutoff for the fallback) runs first as a vectorised process.cdist
-    with score_cutoff, so only the sparse survivors get the per-pair country veto
-    and first-name refinement. Survivors are folded in original secondary order,
-    so the best-match tie-break is identical to a plain double loop.
+    Last names use fuzz.ratio (no subset bonus), which stops 'Couto' matching 'Couto Silva'.
+    First names use token_set_ratio to tolerate middle names and initial variants.
+    When a record only has a full name (no split first/last), the strategy falls back to
+    whole-string token_set_ratio at a 100-point cutoff.
+
+    Each path runs its strict gate (last-name ratio for split records, the full-name
+    cutoff for the fallback) as a vectorised process.cdist pass first. Only the survivors
+    of that pass receive the per-pair country veto and first-name check. Survivors are
+    processed in original secondary order, so the best-match tie-break matches what a
+    plain double loop would produce.
     """
     sec_first: list[str | None] = []
     sec_last: list[str | None] = []
@@ -104,6 +119,8 @@ def fuzzy_name(
     if not sec_record:
         return {}
 
+    # split_cols: secondary indices where first+last are available.
+    # fullonly_cols: secondary indices that only have a full name.
     split_cols = [k for k in range(len(sec_record)) if sec_first[k] is not None]
     fullonly_cols = [k for k in range(len(sec_record)) if sec_first[k] is None]
 
@@ -135,8 +152,9 @@ def fuzzy_name(
     # Per original candidate index: list of (secondary_col, combined, record).
     survivors: dict[int, list[tuple[int, float, ContactRecord]]] = defaultdict(list)
 
-    # Path 1: split candidate vs split secondary. Block on last name (the strict
-    # gate), then refine with the first-name threshold and country veto.
+    # Path 1: split candidate vs split secondary.
+    # The last-name gate runs first (vectorised); survivors are then checked against
+    # the first-name threshold and the country veto.
     if qsplit_last and split_cols:
         split_last_choices = [sec_last[k] for k in split_cols]
         for qi, ci, last_score in _blocks(qsplit_last, split_last_choices, fuzz.ratio, LAST_NAME_THRESHOLD):
@@ -149,9 +167,9 @@ def fuzzy_name(
             combined = (first_score + last_score) // 2
             survivors[qsplit_idx[qi]].append((col, combined, sec_record[col]))
 
-    # Path 2: split candidate vs full-only secondary. The candidate's split can't
-    # be paired part-by-part with a one-field full name, so both go through the
-    # whole-string fallback at the exact cutoff.
+    # Path 2: split candidate vs full-name-only secondary.
+    # The candidate's separate first/last fields can't be paired part-by-part against
+    # a single full-name string, so both sides use the whole-string fallback.
     if qsplit_fullrep and fullonly_cols:
         fo_choices = [sec_fullrep[k] for k in fullonly_cols]
         for qi, ci, score in _blocks(qsplit_fullrep, fo_choices, fuzz.token_set_ratio, FULLNAME_THRESHOLD):
@@ -160,8 +178,8 @@ def fuzzy_name(
                 continue
             survivors[qsplit_idx[qi]].append((col, score, sec_record[col]))
 
-    # Path 3: full-only candidate vs every secondary (using each secondary's
-    # whole-string representation), whole-string fallback at the exact cutoff.
+    # Path 3: full-name-only candidate vs all secondary records.
+    # Uses each secondary's whole-string representation and the same fallback cutoff.
     if qfull_full:
         for qi, col, score in _blocks(qfull_full, sec_fullrep, fuzz.token_set_ratio, FULLNAME_THRESHOLD):
             if _country_conflict(qfull_country[qi], sec_country[col]):
@@ -172,10 +190,12 @@ def fuzzy_name(
     for cand_i, survs in survivors.items():
         best_record: ContactRecord | None = None
         best_score = 0
+        # Sort by col (original secondary order) so tie-breaking is deterministic
+        # and consistent with what a plain double loop would produce.
         for _col, combined, record in sorted(survs, key=lambda t: t[0]):
             if combined > best_score:
                 best_score = combined
                 best_record = record
         if best_record is not None:
-            matches[cand_i] = (best_record, best_score)
+            matches[cand_i] = (best_record, int(best_score))
     return matches

@@ -7,6 +7,8 @@ _WHITESPACE = re.compile(r"\s+")
 
 
 def _normalise(value: str | None) -> str | None:
+    """Collapse internal whitespace, strip leading/trailing space.
+    Return None for blank or missing values."""
     if value is None:
         return None
     cleaned = _WHITESPACE.sub(" ", value.strip())
@@ -49,6 +51,7 @@ class ContactRecord:
         )
 
     def is_empty(self) -> bool:
+        """True only when every field on this ContactRecord is None."""
         return all(
             v is None
             for v in (
@@ -78,7 +81,7 @@ class ContactRecord:
         )
 
     def resolved_full_name(self) -> str | None:
-        """Dedicated full-name when present, otherwise first + last."""
+        """Return full_name if present, otherwise join first_name and last_name. Returns None if neither combination is available."""
         if self.full_name is not None:
             return self.full_name
         if self.first_name is not None and self.last_name is not None:

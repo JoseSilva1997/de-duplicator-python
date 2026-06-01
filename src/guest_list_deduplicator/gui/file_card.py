@@ -37,6 +37,8 @@ ICON_SIZE = 40
 
 
 class FileCard(QFrame):
+    """Drop-zone card for a single spreadsheet. Calls sheet_selector when a file is chosen; if that returns None the card stays unchanged. Emits changed when the file or record count changes."""
+
     changed = Signal()
 
     def __init__(self, title: str, description: str, sheet_selector: SheetSelector):
@@ -89,12 +91,12 @@ class FileCard(QFrame):
         label = QLabel(text)
         label.setFont(font)
         label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        # palette/stylesheet would be heavier; setStyleSheet is fine for color-only
+        # setStyleSheet is lighter than a full palette override for a single color property
         label.setStyleSheet(f"color: {theme.hex_(color)}; background: transparent;")
         return label
 
     def _set_icon(self, state: str) -> None:
-        # state: "empty" | "hover" | "loaded"
+        """Update the icon. state must be "empty", "hover", or "loaded"."""
         if state == "loaded":
             icon = qta.icon("mdi.check-circle-outline", color=theme.hex_(theme.SUCCESS))
         elif state == "hover":
@@ -242,6 +244,7 @@ class FileCard(QFrame):
         self._count_records_async(chosen, sheets)
 
     def _count_records_async(self, file: Path, sheets: list[str]) -> None:
+        """Start a background Worker to count rows. Cancels any in-flight count and ignores the result if the user has already picked a different file."""
         # Cancel any in-flight count from a previous selection.
         if self._count_worker is not None:
             self._count_worker.requestInterruption()
@@ -276,6 +279,7 @@ class FileCard(QFrame):
         worker.start()
 
     def _update_filename_display(self) -> None:
+        """Truncate the filename with an ellipsis to fit the current widget width and set it on the main label."""
         if not self._full_filename:
             self._main_label.setText("Choose a file or drag it here")
             return

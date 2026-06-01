@@ -37,6 +37,8 @@ SCRIM_ALPHA = 0.40
 
 
 class Scrim(QWidget):
+    """Semi-transparent overlay covering the main window while the panel is open. Emits clicked when the user taps it."""
+
     clicked = Signal()
 
     def __init__(self, parent: QWidget):
@@ -163,6 +165,7 @@ class SidePanel(QFrame):
         return self._open
 
     def set_open(self, should_open: bool) -> None:
+        """Open or close the panel. Safe to call mid-animation; the early-return guard only short-circuits when the state matches and no animation is running."""
         if self._open == should_open and not self._panel_anim.state():
             return
         self._open = should_open
@@ -187,6 +190,7 @@ class SidePanel(QFrame):
         self._animate_scrim(SCRIM_ALPHA if should_open else 0.0)
 
     def _animate_scrim(self, target: float) -> None:
+        # QPropertyAnimation can't drive a plain Python float property, so a QTimer tick loop is used instead.
         start = self._scrim.alpha()
         steps = 12
         from PySide6.QtCore import QTimer
@@ -213,6 +217,7 @@ class SidePanel(QFrame):
             self._scrim.setVisible(False)
 
     def resync_bounds(self, parent_width: int, parent_height: int) -> None:
+        """Reposition and resize the panel and scrim to match the parent dimensions. Call this whenever the parent window is resized."""
         x = parent_width - PANEL_WIDTH if self._open else parent_width
         self.setGeometry(x, 0, PANEL_WIDTH, parent_height)
         self._scrim.setGeometry(0, 0, parent_width, parent_height)

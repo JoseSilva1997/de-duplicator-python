@@ -1,3 +1,4 @@
+"""Strategy: match by exact normalised name-and-company key."""
 from __future__ import annotations
 
 from .. import normalisation
@@ -8,14 +9,16 @@ def name_company_key(
     candidates: list[ContactRecord],
     secondary: list[ContactRecord],
 ) -> dict[int, tuple[ContactRecord, int]]:
-    """Confidence 90: exact match on '<normalised name>|<normalised company>'.
+    """Match candidates against secondary by exact normalised name and company key.
+    Confidence 90.
 
-    Per-row gate: candidate must have a name (first+last OR full) and a
-    company. key_for() returns None when either piece is missing, which
-    naturally filters those rows out.
+    A candidate is only eligible if it has a name (first+last or full) and a
+    company. key_for returns None when either is missing, which naturally
+    excludes those rows.
     """
-    # Build the lookup. key_for handles the name-resolution and normalisation;
-    # records missing a name or company produce None and are silently skipped.
+    # Build a key-to-record index over secondary. key_for handles name
+    # resolution and normalisation; missing name or company yields None and
+    # those records are skipped.
     key_to_record: dict[str, ContactRecord] = {}
     for record in secondary:
         key = normalisation.key_for(record)

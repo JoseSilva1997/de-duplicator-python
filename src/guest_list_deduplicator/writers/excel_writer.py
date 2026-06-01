@@ -1,7 +1,5 @@
-"""Writes the two output workbooks. Stateless function, no class wrapper.
-
-In production resolves the user's Desktop. In dev (running from a source
-checkout) resolves to <project>/outputs/ instead.
+"""Writes the two output workbooks. Saves to the user's Desktop when running normally,
+or to <project>/outputs/ during development.
 """
 from __future__ import annotations
 
@@ -15,8 +13,7 @@ from ..model.sheet_data import SheetData
 
 from ..dedup import DedupResult
 
-# Order in which columns appear in the output. Anything not in this list is
-# dropped from output entirely.
+# Columns that appear in the output, in this order. Any column not listed here is left out.
 _DEFAULT_COLUMNS: tuple[ContactField, ...] = (
     ContactField.FIRST_NAME,
     ContactField.LAST_NAME,
@@ -33,12 +30,11 @@ def write(
     sheets: dict[str, SheetData],
     results: dict[str, DedupResult],
 ) -> Path:
-    """Write the two output workbooks. Returns the directory they were written
-    to so the GUI can display it.
+    """Write the two output workbooks. Returns the directory they were saved to
+    so the GUI can open it.
 
-    `sheets` is the original primary read (needed for each sheet's
-    available_fields); `results` is the per-sheet dedup outcome. Both maps
-    share the same keys in the same order.
+    `sheets` carries the original input for each tab (needed to know which columns
+    were present); `results` holds what was kept and removed. Both share the same keys.
     """
     output_dir = _resolve_output_dir()
     base = primary_path.stem
@@ -51,8 +47,8 @@ def write(
         include_removed_columns=False,
     )
 
-    # The "People removed" workbook is skipped entirely when nothing was
-    # removed — no point producing an empty file the user has to delete.
+    # Only write the "People removed" file if something was actually removed --
+    # no point leaving an empty file on the user's Desktop.
     if any(result.removed for result in results.values()):
         removed_path = output_dir / f"People removed from {base}.xlsx"
         _write_workbook(
@@ -72,14 +68,13 @@ def _write_workbook(
     include_removed_columns: bool,
 ) -> None:
     wb = openpyxl.Workbook()
-    # openpyxl gives every new workbook a default "Sheet" that we'll replace.
+    # openpyxl always creates a placeholder sheet; remove it before adding our own.
     default_sheet = wb.active
     wb.remove(default_sheet)
 
     for name, sheet_data in sheets.items():
         result = results[name]
-        # In the "removed" workbook, sheets that contributed no removals are
-        # omitted entirely — keeps the file focused on rows that were dropped.
+        # In the "removed" workbook, skip any tab where nothing was removed.
         records = result.removed if include_removed_columns else result.kept
         if include_removed_columns and not records:
             continue
@@ -87,15 +82,13 @@ def _write_workbook(
         columns = _columns_for(sheet_data.available_fields)
         ws = wb.create_sheet(title=_safe_sheet_name(name))
 
-        # Header row. RemovedRecord adds reason + confidence plus a snapshot of
-        # the attendee that triggered the removal, prefixed "Matched ".
+        # For RemovedRecord rows, add extra columns showing why the row was removed and which attendee it matched.
         header = [field.label for field in columns]
         if include_removed_columns:
             header += ["Reason", "Confidence", "", "Matched name", "Matched email", "Matched company"]
         ws.append(header)
 
         for entry in records:
-            # entry is either a ContactRecord (kept) or a RemovedRecord (removed).
             record = entry.record if include_removed_columns else entry
             row = [_record_cell(record, field) for field in columns]
             if include_removed_columns:
@@ -114,26 +107,24 @@ def _write_workbook(
 
 
 def _columns_for(available: frozenset[ContactField]) -> list[ContactField]:
-    """Pick the columns to write for this sheet, in canonical order."""
+    """Returns the columns to write for this sheet, in the standard order."""
     columns = list(_DEFAULT_COLUMNS)
-    # If first+last are both present, the full-name column is redundant.
+    # If both first and last name are present, the combined full-name column adds nothing.
     if ContactField.FIRST_NAME in available and ContactField.LAST_NAME in available:
         columns.remove(ContactField.FULL_NAME)
-    # Country is pass-through only — skip the column entirely if the source
-    # never had one. Avoids a column of blanks for the common case.
+    # Only include a country column if the source data had one; otherwise it would just be a column of blanks.
     if ContactField.COUNTRY not in available:
         columns.remove(ContactField.COUNTRY)
     return columns
 
 
 def _safe_sheet_name(name: str) -> str:
-    """Excel caps sheet names at 31 chars; truncate to fit."""
+    """Excel sheet names have a 31-character limit; truncate to fit."""
     return name[:31]
 
 
 def _record_cell(record, field: ContactField) -> str:
-    """Pull a single cell value out of a ContactRecord by field. Maps
-    ContactField → the matching attribute name."""
+    """Gets the value for a given ContactField from a ContactRecord."""
     attr = {
         ContactField.FIRST_NAME: "first_name",
         ContactField.LAST_NAME: "last_name",
@@ -148,12 +139,9 @@ def _record_cell(record, field: ContactField) -> str:
 
 
 def _resolve_output_dir() -> Path:
-    """Drops files in users desktop in production; <repo>/outputs in development.
-
-    Dev detection: walk up from this file's location and check for a
-    pyproject.toml at the repo root. Editable installs leave the source files
-    in-tree, so this works whether the user is running via `python -m ...` or
-    the installed `guest-list-dedup` script.
+    """Returns the folder where output files are saved. Uses the user's Desktop in
+    normal use, or a local outputs/ folder during development (detected by the
+    presence of pyproject.toml in the repo root).
     """
     if not getattr(sys, "frozen", False):
         candidate_root = Path(__file__).resolve().parents[3]

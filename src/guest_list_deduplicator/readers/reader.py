@@ -1,9 +1,9 @@
-"""Reads `.csv`, `.xlsx`, and `.xls` files into {sheet_name: SheetData}.
+"""Reads .csv, .xlsx, and .xls files and returns a {sheet_name: SheetData} map.
 
-The public entry points (`list_sheets`, `read`) switch on the file suffix and
-delegate to per-format helpers. The shared `_rows_to_sheet` helper finds the
-header row (skipping any leading blank or title rows) and maps the remaining
-rows into `ContactRecord`s, dropping any row that fails `has_identifier()`.
+`list_sheets` and `read` dispatch on file extension to format-specific helpers.
+`_rows_to_sheet` finds the header row (skipping blank or title rows at the top),
+then converts the remaining rows to ContactRecords, discarding any row that fails
+ContactRecord.has_identifier().
 """
 from __future__ import annotations
 
@@ -16,7 +16,11 @@ import openpyxl
 import xlrd
 
 def list_sheets(path: Path) -> list[str]:
-    """Return visible sheet names. CSV → single synthetic sheet named after the file."""
+    """Return the names of visible sheets. Hidden and very-hidden sheets are excluded.
+
+    For CSV files, which have no sheet concept, returns a single synthetic name
+    taken from the filename stem.
+    """
     suffix = path.suffix.lower()
     if suffix == ".csv":
         return _list_sheets_csv(path)
@@ -29,10 +33,10 @@ def list_sheets(path: Path) -> list[str]:
 
 
 def read(path: Path, sheet_selection: list[str]) -> dict[str, SheetData]:
-    """Read selected sheets into a {sheet_name: SheetData} map preserving order.
+    """Read the given sheets and return a {sheet_name: SheetData} map in selection order.
 
-    Headers are resolved via header_resolver. Rows failing
-    ContactRecord.has_identifier() are dropped during mapping.
+    Column headers are resolved by header_resolver. Rows that fail
+    ContactRecord.has_identifier() are dropped.
     """
     suffix = path.suffix.lower()
     if suffix == ".csv":
@@ -46,12 +50,14 @@ def read(path: Path, sheet_selection: list[str]) -> dict[str, SheetData]:
 
 
 def _list_sheets_csv(path: Path) -> list[str]:
+    # CSVs have no sheet concept, so the filename stem is used as a synthetic sheet name.
     return [path.stem]
 
 
 def _read_csv(path: Path) -> dict[str, SheetData]:
-    # utf-8-sig silently strips the BOM that Excel-exported CSVs often start with;
-    # without it the first header cell would contain ﻿ and miss every alias.
+    # sheet_selection is not threaded through here: a CSV always has exactly one sheet.
+    # utf-8-sig strips the byte-order mark that Excel-exported CSVs often start with.
+    # Without it, the first header cell picks up the BOM character and matches no alias.
     sheet_name = path.stem
     with path.open("r", encoding="utf-8-sig", newline="") as f:
         rows = list(csv.reader(f))
@@ -59,8 +65,8 @@ def _read_csv(path: Path) -> dict[str, SheetData]:
 
 
 def _list_sheets_xlsx(path: Path) -> list[str]:
-    # read_only streams the file instead of loading it into memory; data_only
-    # returns formula cells' cached values instead of the formula text itself.
+    # read_only streams the workbook rather than loading it fully into memory.
+    # data_only makes formula cells return their last cached value, not the formula text.
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         return [name for name in wb.sheetnames if wb[name].sheet_state == "visible"]
@@ -86,7 +92,7 @@ def _list_sheets_xls(path: Path) -> list[str]:
     return [
         wb.sheet_names()[i]
         for i in range(wb.nsheets)
-        if wb.sheet_by_index(i).visibility == 0 # xlrd defines 0 as visible
+        if wb.sheet_by_index(i).visibility == 0  # xlrd: 0 = visible, 1 = hidden, 2 = very hidden
     ]
 
 
@@ -104,6 +110,12 @@ def _read_xls(path: Path, sheet_selection: list[str]) -> dict[str, SheetData]:
 
 
 def _cell_to_str(value) -> str | None:
+    """Convert any cell value to a plain string, or None if the cell is empty.
+
+    Handles the mix of types that openpyxl and xlrd produce (strings, floats,
+    dates as floats, None). None is passed through intentionally so callers can
+    distinguish a missing value from an empty string.
+    """
     if value is None:
         return None
     if isinstance(value, str):
@@ -112,9 +124,8 @@ def _cell_to_str(value) -> str | None:
 
 
 def _rows_to_sheet(rows: list[list[str]]) -> SheetData:
-    # Walk down from the top until a row produces a non-empty field map. 
-    # This skips leading blank rows and title rows whose cells don't match 
-    # any ContactField alias.
+    # Scan from the top until a row resolves to a non-empty field map.
+    # Blank rows and title rows with no ContactField aliases are skipped this way.
     field_map: dict[ContactField, int] = {}
     data_start = 0
     for i, row in enumerate(rows):
@@ -136,9 +147,14 @@ def _row_to_record(
         cells: list[str | None],
         field_map: dict[ContactField, int],
 ) -> ContactRecord | None:
+    """Build a ContactRecord from one row, or return None if it has no usable identifier.
+
+    The None return is the mechanism by which _rows_to_sheet silently drops
+    structurally valid but content-empty rows (e.g. spacer rows in the sheet).
+    """
     def get(field: ContactField) -> str | None:
-        # idx >= len(cells) guards against ragged CSV rows: short rows would
-        # otherwise IndexError when a trailing column is blank.
+        # Guard against ragged CSV rows where a trailing blank column makes the row
+        # shorter than the header, which would otherwise cause an IndexError.
         idx = field_map.get(field)
         if idx is None or idx >= len(cells):
             return None

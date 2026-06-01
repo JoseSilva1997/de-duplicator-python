@@ -178,6 +178,7 @@ class MainWindow(QMainWindow):
     # ---- sheet selection callback used by both FileCards ---------------------
 
     def _select_sheets_for(self, file: Path) -> list[str] | None:
+        """Sheet-selection callback passed to both FileCards. Returns the selected sheet names, or None if the user cancelled. Single-sheet files skip the picker and are returned directly."""
         try:
             sheets = service.list_sheets(file)
         except Exception as ex:

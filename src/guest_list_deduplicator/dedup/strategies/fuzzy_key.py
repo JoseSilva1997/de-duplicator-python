@@ -1,3 +1,5 @@
+"""fuzzy_key strategy: match candidates against secondary records using separate fuzzy
+gates for name and company."""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -8,16 +10,20 @@ from rapidfuzz import fuzz, process
 from ...model import ContactRecord
 from .. import normalisation
 
-NAME_THRESHOLD = 90 # good balance of false positives vs missed matches, based on spot checks
-COMPANY_THRESHOLD = 40 # same, but company names are often longer so a few minor differences can drag the score down more than for personal names
+NAME_THRESHOLD = 90  # tuned by spot check: high enough to avoid false positives, low enough not to miss obvious matches
+COMPANY_THRESHOLD = 40  # lower than NAME_THRESHOLD because company names tend to be longer, so even small differences pull the ratio down more
 
-# Candidates are scored against the secondary pool in C via process.cdist
-# (multithreaded), one block at a time so the score matrix stays small.
+# Candidates are scored against secondary in batches via process.cdist (multithreaded C).
+# Batching keeps the intermediate score matrix from growing too large.
 _CHUNK = 2000
 
 
 def _name_tokens(normalised_name: str) -> set[str]:
-    """Tokens (length > 1) of an already-normalised name, deduplicated."""
+    """Return the unique tokens from an already-normalised name, excluding single-character tokens.
+
+    Single-character tokens (initials, stray punctuation artefacts) match too broadly
+    and would flood the inverted index with noise.
+    """
     return {t for t in normalised_name.split() if len(t) > 1}
 
 
@@ -25,28 +31,32 @@ def fuzzy_key(
     candidates: list[ContactRecord],
     secondary: list[ContactRecord],
 ) -> dict[int, tuple[ContactRecord, int]]:
-    """Confidence: name AND company each fuzzy-match independently.
+    """Match candidates against secondary records, requiring both name and company to fuzzy-match.
 
-    Scoring the concatenated 'name|company' key as one string lets a long
-    shared company name drag the overall score above threshold even when the
-    names share nothing. Comparing the two parts separately, with their own
-    cutoffs, prevents that.
+    Scoring a concatenated "name|company" key as a single string is unreliable: a long shared
+    company name can push the combined score above threshold even when the names share nothing.
+    Comparing name and company separately, each against its own cutoff, prevents that.
 
-    The name gate (the strict one) is computed exactly as token_set_ratio but
-    without scoring every pair. token_set_ratio >= token_sort_ratio always, and
-    the only pairs where token_set clears the cutoff while token_sort does not
-    are subset-name cases ("John Smith" vs "John Michael Smith"), which by
-    construction share an exact token. So the survivor set is reconstructed from:
+    The name gate uses token_set_ratio semantics but avoids scoring every pair in the grid.
+    token_set_ratio is always >= token_sort_ratio, and the only pairs where token_set clears
+    the cutoff while token_sort does not are subset-name cases ("John Smith" vs "John Michael
+    Smith"), which by construction share an exact token. The full survivor set is therefore
+    built in two stages:
 
-      1. a cheap vectorised token_sort_ratio cdist at the cutoff (a lower bound:
-         every hit is a real token_set hit), plus
-      2. the token-sharing pairs found through an inverted token index,
+      1. A vectorised token_sort_ratio cdist pass at the cutoff. Every hit here is guaranteed
+         to survive the token_set gate too (lower bound).
+      2. An inverted token index lookup to catch the subset-name pairs the sort pass misses.
 
-    and the exact token_set_ratio is then applied only to that sparse union. The
-    result is bit-identical to scoring token_set_ratio over the full grid.
+    The exact token_set_ratio is then applied only to that sparse union. The result is
+    bit-identical to a full grid score.
+
+    This avoids calling token_set_ratio across the full candidate × secondary grid.
+    token_sort_ratio runs as vectorised, multithreaded C via process.cdist; token_set_ratio
+    cannot be vectorised the same way. The two-stage design means the expensive scorer only
+    runs on the small fraction of pairs that survive the cheap pass.
     """
-    # Pre-extract normalised (name, company, record) tuples once. Records that
-    # can't form a usable key (missing name or company) are skipped here.
+    # Normalise secondary records up front and drop any that lack a name or company,
+    # since those can't form a usable key.
     sec_names: list[str] = []
     sec_companies: list[str] = []
     sec_records: list[ContactRecord] = []
@@ -63,14 +73,15 @@ def fuzzy_key(
     if not sec_records:
         return {}
 
-    # Inverted index over secondary name tokens, built once. Used to recover the
-    # subset-name matches that the token_sort lower bound misses.
+    # Build an inverted index from name tokens to secondary column indices.
+    # This lets stage 2 recover subset-name matches that the token_sort pass misses.
     token_to_cols: dict[str, list[int]] = defaultdict(list)
     for col, name in enumerate(sec_names):
         for tok in _name_tokens(name):
             token_to_cols[tok].append(col)
 
-    # Candidate features, keeping each row's original index for the result map.
+    # Normalise candidate records, tracking each one's original index in 'candidates'
+    # so the result map can refer back to it. cand_idx[qi] gives the original position.
     cand_idx: list[int] = []
     q_names: list[str] = []
     q_companies: list[str] = []
@@ -87,8 +98,12 @@ def fuzzy_key(
     if not q_names:
         return {}
 
-    # Stage 1: token_sort_ratio is a lower bound for token_set_ratio, so every
-    # pair clearing the cutoff here is a guaranteed token_set survivor.
+    # Stage 1: vectorised token_sort_ratio via process.cdist (multithreaded C, SIMD-friendly).
+    # token_set_ratio involves set operations that can't be parallelised the same way, so
+    # running it over the full grid would be far slower. token_sort_ratio serves as a cheap
+    # lower bound: because token_sort_ratio <= token_set_ratio, every pair that passes here
+    # is guaranteed to pass the token_set gate too.
+    # sort_survivors[qi] is indexed by compressed position qi, parallel to cand_idx.
     sort_survivors: list[set[int]] = [set() for _ in q_names]
     for start in range(0, len(q_names), _CHUNK):
         block = q_names[start:start + _CHUNK]
@@ -106,9 +121,9 @@ def fuzzy_key(
 
     matches: dict[int, tuple[ContactRecord, int]] = {}
     for qi, q_name in enumerate(q_names):
-        # Stage 2: add the token-sharing secondaries (the only place a subset
-        # match the lower bound missed can hide). The exact token_set_ratio gate
-        # below filters this superset back down to the true survivor set.
+        # Stage 2: add any secondary records that share a name token with this candidate.
+        # These are the only pairs the sort pass could have missed. The token_set_ratio
+        # check below then filters the combined set down to genuine survivors.
         cols = set(sort_survivors[qi])
         for tok in _name_tokens(q_name):
             cols.update(token_to_cols.get(tok, ()))
@@ -125,9 +140,9 @@ def fuzzy_key(
             company_score = fuzz.token_set_ratio(q_company, sec_companies[col])
             if company_score < COMPANY_THRESHOLD:
                 continue
-            # Mean is more forgiving than min; min is more conservative. Mean
-            # surfaces "both pretty good" as a high confidence; min would
-            # report a 99/85 match as 85.
+            # Mean rewards pairs where both scores are good; min would cap a 99/85 match
+            # at 85, hiding the strength of the name match. The floor division only affects
+            # tie-breaking between multiple secondary matches.
             combined = (name_score + company_score) // 2
             if combined > best_score:
                 best_score = combined
