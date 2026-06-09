@@ -55,7 +55,8 @@ SEEDING_STRATEGY_LABELS = frozenset({
 
 def default_pipeline() -> list[Strategy]:
     """The five-strategy default pipeline, in order. Order matters: earlier strategies
-    take precedence and their matches are not re-examined by later ones."""
+    take precedence and their matches are not re-examined by later ones.
+    Records are canonicalised at ContactRecord construction (email lowercased, whitespace collapsed)."""
     return [
         Strategy("Exact email", frozenset({ContactField.EMAIL}), strategies.exact_email),
         Strategy("Email username", frozenset({ContactField.EMAIL}), strategies.email_username),
