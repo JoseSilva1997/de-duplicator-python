@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX source for the Guest List Cleaner MSI.
+
+  Builds a per-machine (all users) installer into C:\Program Files, harvesting
+  the PyInstaller onedir output. Designed for silent install via Intune:
+      msiexec /i "Guest List Cleaner.msi" /qn
+
+  Version and the harvest directory are passed in at build time:
+      wix build installer\GuestListCleaner.wxs
+        -d Version=0.1.1
+        -d HarvestDir="dist\Guest List Cleaner"
+        -o "dist\Guest List Cleaner.msi"
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Guest List Cleaner"
+      Manufacturer="Jose Silva"
+      Version="$(var.Version)"
+      UpgradeCode="54D5388D-09D5-4F6B-AEA0-87DEBCD12108"
+      Scope="perMachine"
+      Compressed="yes">
+
+    <!-- Clean replace of any older version rather than side-by-side installs. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+
+    <!-- Embed the payload in the MSI so a single file is all Intune needs. -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Shown in Add/Remove Programs and on the Start Menu shortcut. -->
+    <Icon Id="AppIcon" SourceFile="$(var.HarvestDir)\_internal\assets\cut_duplicates_icon_256.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <!-- Per-machine install target: C:\Program Files\Guest List Cleaner. -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Guest List Cleaner" />
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="AppShortcut" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <!-- Harvest the whole onedir tree (exe + _internal\**) into components. -->
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.HarvestDir)\**" />
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <!-- All-users Start Menu shortcut pointing at the installed exe. -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="AppShortcut" Guid="*">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="Guest List Cleaner"
+                  Target="[INSTALLFOLDER]Guest List Cleaner.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+        <RegistryValue Root="HKLM"
+                       Key="Software\Guest List Cleaner"
+                       Name="installed"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+  </Fragment>
+</Wix>
