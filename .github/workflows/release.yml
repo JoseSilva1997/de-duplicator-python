@@ -67,9 +67,12 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      # --onedir (not --onefile): produces a real dist/Guest List Cleaner/ folder
+      # that WiX lays down into Program Files. --onefile re-extracts to a temp dir
+      # on every launch, which is wrong for a managed per-machine install.
       - name: Build executable
         run: >
-          pyinstaller --name "Guest List Cleaner" --onefile --windowed
+          pyinstaller --name "Guest List Cleaner" --onedir --windowed
           --icon "src/assets/cut_duplicates_icon_256.ico"
           --add-data "src/assets/cut_duplicates_icon_256.ico;assets"
           --collect-all qtawesome
@@ -89,6 +92,15 @@ jobs:
           git push origin HEAD:${{ github.ref_name }}
           git push origin "v${version}"
 
+      # --onedir emits a folder, not a single file, so zip it for the release.
+      # This is an interim asset: the WiX MSI will replace it as the artifact.
+      - name: Package build
+        shell: bash
+        run: |
+          version="${{ steps.bump.outputs.version }}"
+          cd dist
+          7z a "Guest List Cleaner v${version}.zip" "Guest List Cleaner"
+
       - name: Publish release
         shell: bash
         env:
@@ -96,6 +108,6 @@ jobs:
         run: |
           version="${{ steps.bump.outputs.version }}"
           gh release create "v${version}" \
-            "dist/Guest List Cleaner.exe" \
+            "dist/Guest List Cleaner v${version}.zip" \
             --title "Guest List Cleaner v${version}" \
             --generate-notes
