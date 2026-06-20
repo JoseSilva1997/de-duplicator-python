@@ -79,6 +79,21 @@ jobs:
           --collect-all qdarktheme
           run.py
 
+      # WiX 5 (last fee-free line) builds the MSI. Done before the commit/tag so
+      # an MSI build failure leaves nothing committed or tagged.
+      - name: Install WiX
+        run: dotnet tool install --global wix --version 5.*
+
+      - name: Build MSI
+        shell: bash
+        run: |
+          version="${{ steps.bump.outputs.version }}"
+          harvest="$(pwd)/dist/Guest List Cleaner"
+          wix build "installer/GuestListCleaner.wxs" \
+            -d Version="${version}" \
+            -d HarvestDir="${harvest}" \
+            -o "dist/Guest List Cleaner v${version}.msi"
+
       # Only reached if the build succeeded.
       - name: Commit bump and tag
         shell: bash
@@ -92,15 +107,6 @@ jobs:
           git push origin HEAD:${{ github.ref_name }}
           git push origin "v${version}"
 
-      # --onedir emits a folder, not a single file, so zip it for the release.
-      # This is an interim asset: the WiX MSI will replace it as the artifact.
-      - name: Package build
-        shell: bash
-        run: |
-          version="${{ steps.bump.outputs.version }}"
-          cd dist
-          7z a "Guest List Cleaner v${version}.zip" "Guest List Cleaner"
-
       - name: Publish release
         shell: bash
         env:
@@ -108,6 +114,6 @@ jobs:
         run: |
           version="${{ steps.bump.outputs.version }}"
           gh release create "v${version}" \
-            "dist/Guest List Cleaner v${version}.zip" \
+            "dist/Guest List Cleaner v${version}.msi" \
             --title "Guest List Cleaner v${version}" \
             --generate-notes
