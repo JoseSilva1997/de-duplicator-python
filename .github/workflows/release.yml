@@ -1,8 +1,8 @@
 name: Build and release
 
 # Manually triggered from the Actions tab. You pick the bump size; the pipeline
-# bumps the version in pyproject.toml, builds the Windows .exe, commits the bump,
-# tags it, and publishes a GitHub release with the executable attached.
+# bumps the version in pyproject.toml, builds the Windows MSI, commits the bump,
+# tags it, and publishes a GitHub release with the MSI attached.
 on:
   workflow_dispatch:
     inputs:
