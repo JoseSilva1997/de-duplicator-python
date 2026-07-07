@@ -103,21 +103,27 @@ jobs:
       - name: Install MSI silently
         run: |
           $version = "${{ steps.bump.outputs.version }}"
-          $msi = ".\dist\Guest List Cleaner v$version.msi"
+          # Absolute paths: Start-Process doesn't guarantee msiexec inherits this
+          # step's working directory, so a relative log path (and the log tail /
+          # artifact that depend on it) silently ended up nowhere. Resolve-Path
+          # also fails loudly here if the built MSI isn't where we expect.
+          $msi = (Resolve-Path ".\dist\Guest List Cleaner v$version.msi").Path
+          $log = Join-Path $PWD "install.log"
           $installFolder = "C:\Program Files\Guest List Cleaner"
           $installed = "$installFolder\Guest List Cleaner.exe"
 
           # -PassThru + WaitForExit, not -Wait: -Wait blocks on descendants too,
           # and the Windows Installer service (msiexec /V) lingers idle for ~10
           # minutes after the install, which would hang this step that whole time.
-          $i = Start-Process msiexec -ArgumentList "/i","$msi","/qn","/l*v","install.log" -PassThru
-          if (-not $i.WaitForExit(300000)) {
-            $i.Kill()
-            if (Test-Path install.log) { Get-Content install.log -Tail 50 }
-            throw "Silent install timed out."
-          }
+          $i = Start-Process msiexec -ArgumentList "/i","$msi","/qn","/l*v","$log" -PassThru
+          $exited = $i.WaitForExit(600000)
+
+          # Print the whole log inline regardless of outcome, so a hang/failure is
+          # diagnosable straight from the step output without hunting an artifact.
+          if (Test-Path $log) { Write-Host "----- install.log -----"; Get-Content $log }
+
+          if (-not $exited) { $i.Kill(); throw "Silent install timed out." }
           if ($i.ExitCode -ne 0 -and $i.ExitCode -ne 3010) {
-            if (Test-Path install.log) { Get-Content install.log -Tail 50 }
             throw "Silent install failed with exit code $($i.ExitCode)."
           }
           # Confirms the all-users layout: the exe landed under Program Files.
