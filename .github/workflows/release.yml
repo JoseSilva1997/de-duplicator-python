@@ -79,21 +79,6 @@ jobs:
           --collect-all qdarktheme
           run.py
 
-      # Smoke-test the actual frozen bundle before packaging it. --self-check
-      # constructs the app offscreen and exits 0; if a runtime dependency (e.g.
-      # numpy) wasn't collected, the import chain fails here instead of in front
-      # of a user. The exe is --windowed, so a crash raises a modal traceback
-      # dialog that never returns; WaitForExit turns that hang into a failure.
-      - name: Smoke-test the built app
-        run: |
-          $exe = ".\dist\Guest List Cleaner\Guest List Cleaner.exe"
-          $p = Start-Process -FilePath $exe -ArgumentList "--self-check" -PassThru
-          if (-not $p.WaitForExit(60000)) {
-            $p.Kill()
-            throw "Self-check timed out (likely a crash dialog from a missing bundled dependency)."
-          }
-          if ($p.ExitCode -ne 0) { throw "Self-check failed with exit code $($p.ExitCode)." }
-
       # WiX 5 (last fee-free line) builds the MSI. Done before the commit/tag so
       # an MSI build failure leaves nothing committed or tagged.
       - name: Install WiX
@@ -108,6 +93,49 @@ jobs:
             -d Version="${version}" \
             -d HarvestDir="${harvest}" \
             -o "dist/Guest List Cleaner v${version}.msi"
+
+      # The next three steps test the MSI itself: a silent per-machine install,
+      # running the installed exe from Program Files, then a silent uninstall.
+      # They share the msi/install paths via $GITHUB_ENV because PowerShell
+      # variables don't persist across steps. GitHub's Windows runners are
+      # elevated, so a perMachine install needs no UAC interaction. Exit code
+      # 3010 (reboot requested) counts as success alongside 0 throughout.
+      - name: Install MSI silently
+        run: |
+          $version = "${{ steps.bump.outputs.version }}"
+          $msi = ".\dist\Guest List Cleaner v$version.msi"
+          $installFolder = "C:\Program Files\Guest List Cleaner"
+          $installed = "$installFolder\Guest List Cleaner.exe"
+
+          $i = Start-Process msiexec -ArgumentList "/i","$msi","/qn","/l*v","install.log" -Wait -PassThru
+          if ($i.ExitCode -ne 0 -and $i.ExitCode -ne 3010) {
+            if (Test-Path install.log) { Get-Content install.log -Tail 50 }
+            throw "Silent install failed with exit code $($i.ExitCode)."
+          }
+          # Confirms the all-users layout: the exe landed under Program Files.
+          if (-not (Test-Path $installed)) { throw "Installed exe not found at $installed." }
+
+          # Hand the paths to the later steps (fresh shell each step).
+          "MSI_PATH=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "INSTALL_FOLDER=$installFolder" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "INSTALLED_EXE=$installed" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Run installed app
+        run: |
+          # --windowed, so a crash raises a modal dialog that never returns;
+          # WaitForExit turns that hang into a failure.
+          $p = Start-Process -FilePath "$env:INSTALLED_EXE" -ArgumentList "--self-check" -PassThru
+          if (-not $p.WaitForExit(60000)) {
+            $p.Kill()
+            throw "Installed app self-check timed out (likely a missing bundled dependency)."
+          }
+          if ($p.ExitCode -ne 0) { throw "Installed app self-check failed with exit code $($p.ExitCode)." }
+
+      - name: Uninstall MSI silently
+        run: |
+          $u = Start-Process msiexec -ArgumentList "/x","$env:MSI_PATH","/qn" -Wait -PassThru
+          if ($u.ExitCode -ne 0 -and $u.ExitCode -ne 3010) { throw "Silent uninstall failed with exit code $($u.ExitCode)." }
+          if (Test-Path "$env:INSTALL_FOLDER") { throw "Uninstall left files behind." }
 
       # Only reached if the build succeeded.
       - name: Commit bump and tag
