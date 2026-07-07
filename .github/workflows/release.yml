@@ -79,6 +79,21 @@ jobs:
           --collect-all qdarktheme
           run.py
 
+      # Smoke-test the actual frozen bundle before packaging it. --self-check
+      # constructs the app offscreen and exits 0; if a runtime dependency (e.g.
+      # numpy) wasn't collected, the import chain fails here instead of in front
+      # of a user. The exe is --windowed, so a crash raises a modal traceback
+      # dialog that never returns; WaitForExit turns that hang into a failure.
+      - name: Smoke-test the built app
+        run: |
+          $exe = ".\dist\Guest List Cleaner\Guest List Cleaner.exe"
+          $p = Start-Process -FilePath $exe -ArgumentList "--self-check" -PassThru
+          if (-not $p.WaitForExit(60000)) {
+            $p.Kill()
+            throw "Self-check timed out (likely a crash dialog from a missing bundled dependency)."
+          }
+          if ($p.ExitCode -ne 0) { throw "Self-check failed with exit code $($p.ExitCode)." }
+
       # WiX 5 (last fee-free line) builds the MSI. Done before the commit/tag so
       # an MSI build failure leaves nothing committed or tagged.
       - name: Install WiX
