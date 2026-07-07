@@ -107,7 +107,15 @@ jobs:
           $installFolder = "C:\Program Files\Guest List Cleaner"
           $installed = "$installFolder\Guest List Cleaner.exe"
 
-          $i = Start-Process msiexec -ArgumentList "/i","$msi","/qn","/l*v","install.log" -Wait -PassThru
+          # -PassThru + WaitForExit, not -Wait: -Wait blocks on descendants too,
+          # and the Windows Installer service (msiexec /V) lingers idle for ~10
+          # minutes after the install, which would hang this step that whole time.
+          $i = Start-Process msiexec -ArgumentList "/i","$msi","/qn","/l*v","install.log" -PassThru
+          if (-not $i.WaitForExit(300000)) {
+            $i.Kill()
+            if (Test-Path install.log) { Get-Content install.log -Tail 50 }
+            throw "Silent install timed out."
+          }
           if ($i.ExitCode -ne 0 -and $i.ExitCode -ne 3010) {
             if (Test-Path install.log) { Get-Content install.log -Tail 50 }
             throw "Silent install failed with exit code $($i.ExitCode)."
@@ -119,6 +127,17 @@ jobs:
           "MSI_PATH=$msi" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "INSTALL_FOLDER=$installFolder" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "INSTALLED_EXE=$installed" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Always upload the verbose msiexec log, even on a timeout or failure, so
+      # a hang can be diagnosed (e.g. install genuinely blocked vs. succeeded).
+      # if-no-files-found: ignore so an early build failure doesn't error here.
+      - name: Upload MSI install log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: msi-install-log
+          path: install.log
+          if-no-files-found: ignore
 
       - name: Run installed app
         run: |
@@ -133,7 +152,12 @@ jobs:
 
       - name: Uninstall MSI silently
         run: |
-          $u = Start-Process msiexec -ArgumentList "/x","$env:MSI_PATH","/qn" -Wait -PassThru
+          # -PassThru + WaitForExit, not -Wait (see the install step for why).
+          $u = Start-Process msiexec -ArgumentList "/x","$env:MSI_PATH","/qn" -PassThru
+          if (-not $u.WaitForExit(300000)) {
+            $u.Kill()
+            throw "Silent uninstall timed out."
+          }
           if ($u.ExitCode -ne 0 -and $u.ExitCode -ne 3010) { throw "Silent uninstall failed with exit code $($u.ExitCode)." }
           if (Test-Path "$env:INSTALL_FOLDER") { throw "Uninstall left files behind." }
 
